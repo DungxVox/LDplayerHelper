@@ -69,3 +69,5 @@ if (checkdump)
 
 // Mở ứng dụng theo tên gói
 LDplayerHelper.OpenPackage(ld, namepackage);
+
+P/s: Bên trên là những demo cơ bản, có thể kiểm tra kỹ hơn ở class.
