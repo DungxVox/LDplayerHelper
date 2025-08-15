@@ -19,19 +19,14 @@ Hỗ trợ điều khiển đa luồng
 
 Tự động kết nối lại ADB qua IP:Port
 
-🧪 Ví dụ sử dụng (Demo)
+// 1) Khai báo & chuẩn bị
+LDplayerHelper.pathLD = Path.Combine(txtpathLD.Text, "ldconsole.exe");
+LDplayerHelper.RunCMD(LDplayerHelper.pathLD);
+
+// 2) Xác thực số luồng với số LD hiện có
 int totalLD = 1; 
 bool checkDump = false;
 int multiThread = Convert.ToInt32(nThread.Value) + 1;
-
-// Tạo danh sách index cho các luồng
-for (int i = 1; i < multiThread; i++)
-{
-    list_index.Add("index " + i);
-}
-
-// Khởi tạo LDPlayer
-LDplayerHelper.RunCMD(link);
 
 string[] ldcount = File.ReadAllLines("ldcount.txt");
 if (multiThread > ldcount.Length)
@@ -40,43 +35,42 @@ if (multiThread > ldcount.Length)
     return;
 }
 
-// Danh sách LD cần xử lý
-List<string> ldIndexes = Enumerable.Range(1, totalLD).Select(x => $"index {x}").ToList();
+// 3) Tạo danh sách "index n"
+var ldIndexes = Enumerable
+    .Range(1, totalLD)
+    .Select(x => $"index {x}")
+    .ToList();
 
+// 4) Mở & cấu hình từng LD
 foreach (var ld in ldIndexes)
 {
-    string ldConsolePath = Path.Combine(txtpathLD.Text, "ldconsole.exe");
-
-    // Gán đường dẫn LDPlayer
-    LDplayerHelper.pathLD = ldConsolePath;
-
-    // Khởi động và cấu hình
-    LDplayerHelper.RunCMD(ldConsolePath);
+    // Khởi động & set cấu hình
     LDplayerHelper.ChangeInfoLD(ld, 540, 960, 240, false);
     LDplayerHelper.OpenLDP(ld);
-    LDplayerHelper.SortWnd();
 }
 
-// Dump text hoặc content
-checkDump = LDplayerHelper.DumpText(ldName, "Now Accepts IP/Domain", 5);
+// (tuỳ chọn) Sắp xếp cửa sổ
+LDplayerHelper.SortWnd();
+
+// 5) Dump UI và chờ thấy chuỗi mục tiêu
+checkDump = LDplayerHelper.DumpText("index 1", "Now Accepts IP/Domain", 5);
 if (!checkDump) return;
 
-// Tìm và tương tác bằng hình ảnh
-checkDump = LDplayerHelper.FindImage(ldName, Resources.portproxy, 5);
-if (checkDump) return;
+// 6) Tương tác bằng ảnh (nếu có)
+if (LDplayerHelper.FindImage("index 1", Resources.portproxy, 5))
+    return;
 
-// Mở ứng dụng theo package
-LDplayerHelper.OpenPackage(ld, namepackage);
+// 7) Mở app theo package
+LDplayerHelper.OpenPackage("index 1", "com.example.app");
 
-// Kết nối lại ADB qua IP:Port (serial có thể giúp bạn reconnect lại adb sau khi change ip trong ld hoặc ngoài pc - như vậy bạn có thể xài bất cứ ld nào mà không sợ dis connect hoặc không tìm thấy thiết bị)
+// 8) Kết nối lại ADB qua serial - lấy được chuẩn serial sẽ có thể giúp bạn reconnect lại adb sau khi bị mất kết nối (thường sẽ diễn ra nếu bạn change ip trong ldplayer hoặc pc)
+int thisLDIndex = 1; // ví dụ
 int adbPort = LDplayerHelper.GetAdbPortFromIndex(thisLDIndex);
-if (adbPort == 0)
-{
-   adbPort = 5555 + thisLDIndex * 2;
-}
+if (adbPort == 0) adbPort = 5555 + thisLDIndex * 2;
 string serial = $"127.0.0.1:{adbPort}";
-ADBServer.ConnectByIP_PORT(serial); // adb connect 127.0.0.1:adbPort
+ADBServer.ConnectByIP_PORT(serial);
 
+//Đoạn code hỗ trợ gần như đủ để bạn làm tất cả thao tác trên ldplayer - hãy xem chi tiết trong class để thấy nhiều hơn nhé!
 ☕ Hỗ trợ phát triển
 
 Nếu bạn thấy LDplayerHelper hữu ích, hãy ủng hộ để mình có thêm động lực chia sẻ nhiều tính năng hay hơn:
