@@ -71,6 +71,7 @@ string serial = $"127.0.0.1:{adbPort}";
 ADBServer.ConnectByIP_PORT(serial);
 
 //Đoạn code hỗ trợ gần như đủ để bạn làm tất cả thao tác trên ldplayer - hãy xem chi tiết trong class để thấy nhiều hơn nhé!
+
 ☕ Hỗ trợ phát triển
 
 Nếu bạn thấy LDplayerHelper hữu ích, hãy ủng hộ để mình có thêm động lực chia sẻ nhiều tính năng hay hơn:
