@@ -1,4 +1,4 @@
-﻿using KAutoHelper;
+using KAutoHelper;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using OtpNet;
@@ -23,6 +23,7 @@ namespace RegAccoutFacebookV1
     class LDplayerHelper
     {
         public static string pathLD = "";
+        static Dictionary<string, object> ldLocks = new Dictionary<string, object>();
         public static bool FindImage(string index, Bitmap LinkIMG, int exitwhile, bool tap = true, bool capx = true, int x = 0, int y = 0)
         {
             int count = 0;
@@ -420,7 +421,70 @@ namespace RegAccoutFacebookV1
         public static string InstallAPK(string index, string pathAPK)
         {
             return ExecuteLD_Result("installapp --" + index + " --filename " + pathAPK);
-        }       
+        }
+        public static bool WaitUntilUninstalled(string index, string packageName, int timeoutSeconds = 30)
+        {
+            int waited = 0;
+            while (waited < timeoutSeconds)
+            {
+                string result = ExcuteCMD(index, $"shell pm list packages {packageName}");
+                if (!result.Contains(packageName))
+                    return true;
+
+                Thread.Sleep(1000);
+                waited++;
+            }
+            return false;
+        }
+        public static bool WaitUntilInstalled(string index, string packageName)
+        {
+            for (int i = 0; i < 10; i++)
+            {
+                string result = ExcuteCMD(index, $"shell monkey -p {packageName} -c android.intent.category.LAUNCHER 1");
+                if (!result.ToLower().Contains("error"))
+                    return true;
+
+                Thread.Sleep(1000); 
+            }
+            return false;
+        }
+        public static void GrantAllPermissions(string ldName, string packageName)
+        {
+            lock (GetLDLock(ldName))
+            {
+                string[] permissions = {
+            "android.permission.READ_CONTACTS",
+            "android.permission.WRITE_CONTACTS",
+            "android.permission.CAMERA",
+            "android.permission.RECORD_AUDIO",
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_COARSE_LOCATION",
+            "android.permission.READ_PHONE_STATE",
+            "android.permission.READ_EXTERNAL_STORAGE",
+            "android.permission.WRITE_EXTERNAL_STORAGE"
+        };
+
+                foreach (string permission in permissions)
+                {
+                    try
+                    {
+                        string cmd = $"shell pm grant {packageName} {permission}";
+                        LDplayerHelper.ExcuteCMD(ldName, cmd);
+                        Thread.Sleep(300);
+                    }
+                    catch { }
+                }
+            }
+        }
+        private static object GetLDLock(string ldName)
+        {
+            lock (ldLocks)
+            {
+                if (!ldLocks.ContainsKey(ldName))
+                    ldLocks[ldName] = new object();
+                return ldLocks[ldName];
+            }
+        }
         public static JToken GetInfodevice(string path)
         {
             Random ran = new Random();
@@ -432,7 +496,7 @@ namespace RegAccoutFacebookV1
             JToken rs3 = rs2[ran.Next(0, rs2.Count() - 1)];
             return rs1 + "|" + rs3;
         }
-        public static void ChangeInfoLD(string index, int width, int height, int dpi, bool addphone)
+        public static void ChangeInfoLD(string index, int width, int height, int dpi, bool addphone, string adbport)
         {
             Random ran = new Random();
             string[] phone_list = {
@@ -447,6 +511,10 @@ namespace RegAccoutFacebookV1
             JToken rs2 = rs["models"];
             JToken rs3 = rs2[ran.Next(0, rs2.Count())];
             string cmd = $"modify --{index} --imei auto --imsi auto --simserial auto --androidid auto --cpu 2 --memory 2048 --resolution {width},{height},{dpi} --manufacturer {rs1} --model \"{rs3}\"";
+            if (adbport != "")
+            {
+                cmd += $" --adbport {adbport}";
+            }
             if (addphone)
             {
                 cmd += $" --pnumber {phonenumber}";
@@ -683,7 +751,7 @@ namespace RegAccoutFacebookV1
 
                 File.Delete(linkcookie);
             }
-            catch { };
+            catch { }
             string flag = Directory.GetCurrentDirectory() + linkcookie;
             string text = Pull(index_copy, "/data/data/com.facebook.katana/app_light_prefs/com.facebook.katana/authentication", flag);
             string data = File.ReadAllText(flag);
@@ -696,6 +764,7 @@ namespace RegAccoutFacebookV1
             string UID = Regex.Match(cat, "[0-9]{0,}$").ToString();
             return cookie + "|" + token + "|" + UID;
         }
+
         public static string GetTokenMess(string index_copy)
         {
             string token = ExcuteCMD(index_copy, "shell su -c 'grep -i token /data/data/com.facebook.orca/shared_prefs/*.xml'");
@@ -803,7 +872,7 @@ namespace RegAccoutFacebookV1
                     RedirectStandardOutput = true
                 };
                 process.Start();
-                process.WaitForExit(5000);
+                process.WaitForExit(10000);
                 string text = process.StandardOutput.ReadToEnd();
                 result = text;
                 process.Close();
@@ -917,79 +986,81 @@ namespace RegAccoutFacebookV1
             ExcuteCMD(index, $"shell am force-stop {package}");
             ExcuteCMD(index, $"shell monkey -p {package} -c android.intent.category.LAUNCHER 1");
         }
-        public static int GetAdbPortFromLDPlayer(string ldconsolePath, string targetIndex)
+        public static int GetAdbPortFromIndex(int index)
         {
             try
             {
-                Process adbProc = new Process();
-                adbProc.StartInfo.FileName = "adb";
-                adbProc.StartInfo.Arguments = "devices";
-                adbProc.StartInfo.RedirectStandardOutput = true;
-                adbProc.StartInfo.UseShellExecute = false;
-                adbProc.StartInfo.CreateNoWindow = true;
-                adbProc.Start();
-                string adbOutput = adbProc.StandardOutput.ReadToEnd();
-                adbProc.WaitForExit(5000);
-
-                var emulatorPorts = new List<int>();
-                var adbLines = adbOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (var line in adbLines)
+                string adbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "adb.exe");
+                var startInfo = new ProcessStartInfo
                 {
-                    var match = Regex.Match(line, @"emulator-(\d+)\s+device");
-                    if (match.Success && int.TryParse(match.Groups[1].Value, out int port))
+                    FileName = adbPath,
+                    Arguments = "devices",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using (var process = Process.Start(startInfo))
+                {
+                    string output = process.StandardOutput.ReadToEnd();
+                    process.WaitForExit();
+
+                    var emulatorPorts = new List<int>();
+                    var ipPorts = new HashSet<int>();
+
+                    var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var line in lines)
                     {
-                        emulatorPorts.Add(port);
+                        if (line.StartsWith("127.0.0.1:"))
+                        {
+                            var match = Regex.Match(line, @"127\.0\.0\.1:(\d+)");
+                            if (match.Success)
+                            {
+                                int port = int.Parse(match.Groups[1].Value);
+                                ipPorts.Add(port);
+                            }
+                        }
+                        else if (line.StartsWith("emulator-"))
+                        {
+                            var match = Regex.Match(line, @"emulator-(\d+)");
+                            if (match.Success)
+                            {
+                                int port = int.Parse(match.Groups[1].Value);
+                                if (!ipPorts.Contains(port))
+                                {
+                                    emulatorPorts.Add(port);
+                                }
+                            }
+                        }
                     }
+
+                    if (ipPorts.Count == 0 && emulatorPorts.Count == 0)
+                    {
+                        foreach (var line in lines)
+                        {
+                            var match = Regex.Match(line, @"emulator-(\d+)");
+                            if (match.Success)
+                            {
+                                int port = int.Parse(match.Groups[1].Value);
+                                emulatorPorts.Add(port);
+                            }
+                        }
+                    }
+
+                    emulatorPorts.Sort();
+
+                    if (index < 1 || index > emulatorPorts.Count)
+                    {
+                        return 0;
+                    }
+
+                    int selectedPort = emulatorPorts[index - 1];
+                    return selectedPort + 1;
                 }
-
-                emulatorPorts.Sort(); 
-                Process ldProc = new Process();
-                ldProc.StartInfo.FileName = ldconsolePath;
-                ldProc.StartInfo.Arguments = "list2";
-                ldProc.StartInfo.RedirectStandardOutput = true;
-                ldProc.StartInfo.UseShellExecute = false;
-                ldProc.StartInfo.CreateNoWindow = true;
-                ldProc.Start();
-                string ldOutput = ldProc.StandardOutput.ReadToEnd();
-                ldProc.WaitForExit(5000);
-
-                var entries = ldOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                var ldIndices = new List<string>();
-
-                foreach (var entry in entries)
-                {
-                    var lines = entry.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (lines.Length == 0) continue;
-
-                    string[] parts = lines[0].Split(',');
-                    if (parts.Length == 0) continue;
-
-                    string indexValue = parts[0].Trim();
-                    if (indexValue == "0") continue; 
-
-                    ldIndices.Add(indexValue);
-
-                }
-
-                ldIndices.Sort((a, b) => int.Parse(a).CompareTo(int.Parse(b))); 
-                if (targetIndex.StartsWith("index "))
-                    targetIndex = targetIndex.Replace("index ", "").Trim();
-
-                int idx = ldIndices.IndexOf(targetIndex);
-                if (idx != -1 && idx < emulatorPorts.Count)
-                {
-                    int matchedPort = emulatorPorts[idx];
-                    Console.WriteLine($"✅ LD index {targetIndex} khớp với emulator-{matchedPort}");
-                    return matchedPort;
-                }
-
-                Console.WriteLine($"❌ Không thể ánh xạ LD index {targetIndex} với emulator port.");
-                return -1;
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"❌ Lỗi khi lấy ADB port: {ex.Message}");
-                return -1;
+                return 0;
             }
         }
         public static string RunCMD(string link)
@@ -1063,10 +1134,10 @@ namespace RegAccoutFacebookV1
             }
             return null;
         }
-        private string AIQRCode(string index)
+        public static string AIQRCode(string index)
         {
             string result = "";
-            for (; ; )
+            for (int i = 0;i <10 ;i++ )
             {
                 var Sceen = ScreenShoot_Index(index, true);
                 try
@@ -1086,6 +1157,18 @@ namespace RegAccoutFacebookV1
             }
             return result;
         }
+        public static bool IsFacebookAccountLive(string accessToken)
+        {
+            using (var client = new HttpClient())
+            {
+                var url = $"https://graph.facebook.com/me?access_token={accessToken}";
+                var response = client.GetAsync(url).Result;
+                var content = response.Content.ReadAsStringAsync().Result;
+
+                return !content.Contains("\"error\"");
+            }
+        }
+
         public static void CreateAdbInstances(int numberOfLD)
         {
             string basePath = AppDomain.CurrentDomain.BaseDirectory;
